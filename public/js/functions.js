@@ -385,40 +385,64 @@ function __sum_stock(table, class_name, label_direction = 'right') {
 }
 
 function __print_receipt(section_id = null) {
-    if (section_id) {
-        var imgs = document.getElementById(section_id).getElementsByTagName("img");
-    } else {
-        var imgs = document.images;
-    }
+    var imgs = section_id
+        ? document.getElementById(section_id).getElementsByTagName('img')
+        : document.images;
+    var pending = imgs.length;
+    var printed = false;
+    var print_timer;
+    var cleanup = [];
+    // A stalled image must not prevent a saved sale from being printed.
+    var fallback_timer = setTimeout(printReceipt, 5000);
 
-    img_len = imgs.length;
-    if (img_len) {
-        img_counter = 0;
-
-        [].forEach.call(imgs, function(img) {
-            img.addEventListener('load', incrementImageCounter, false);
+    function printReceipt() {
+        if (printed) {
+            return;
+        }
+        printed = true;
+        clearTimeout(fallback_timer);
+        clearTimeout(print_timer);
+        cleanup.forEach(function(removeListeners) {
+            removeListeners();
         });
-    } else {
-        setTimeout(function() {
-            window.print();
-
-            // setTimeout(function() {
-            //     $('#receipt_section').html('');
-            // }, 5000);
-
-        }, 1000);
-    }
-}
-
-function incrementImageCounter() {
-    img_counter++;
-    if (img_counter === img_len) {
         window.print();
-
-        // setTimeout(function() {
-        //     $('#receipt_section').html('');
-        // }, 5000);
     }
+
+    function imagesReady() {
+        clearTimeout(fallback_timer);
+        print_timer = setTimeout(printReceipt, 1000);
+    }
+
+    if (!pending) {
+        imagesReady();
+        return;
+    }
+
+    [].forEach.call(imgs, function(img) {
+        var settled = false;
+        function removeListeners() {
+            img.removeEventListener('load', imageReady, false);
+            img.removeEventListener('error', imageReady, false);
+        }
+        function imageReady() {
+            if (settled || printed) {
+                return;
+            }
+            settled = true;
+            removeListeners();
+            pending--;
+            if (pending === 0) {
+                imagesReady();
+            }
+        }
+        cleanup.push(removeListeners);
+        img.addEventListener('load', imageReady, false);
+        img.addEventListener('error', imageReady, false);
+        // Cached and already failed images will not fire another load event.
+        if (img.complete) {
+            imageReady();
+        }
+    });
 }
 
 function __getUnitMultiplier(row) {
